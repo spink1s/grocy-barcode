@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import logging
+
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from pygrocy2.data_models.generic import EntityType
 from pygrocy2.grocy_api_client import TransactionType
 
 from .const import ATTR_CHORES, ATTR_TASKS, DOMAIN
 from .coordinator import GrocyDataUpdateCoordinator
 
+_LOGGER = logging.getLogger(__name__)
+
 SERVICE_PRODUCT_ID = "product_id"
+SERVICE_BARCODE = "barcode"
 SERVICE_AMOUNT = "amount"
 SERVICE_PRICE = "price"
 SERVICE_SHOPPING_LIST_ID = "shopping_list_id"
@@ -31,8 +36,10 @@ SERVICE_OBJECT_ID = "object_id"
 SERVICE_LIST_ID = "list_id"
 
 SERVICE_ADD_PRODUCT = "add_product_to_stock"
+SERVICE_ADD_PRODUCT_BY_BARCODE = "add_product_to_stock_by_barcode"
 SERVICE_OPEN_PRODUCT = "open_product"
 SERVICE_CONSUME_PRODUCT = "consume_product_from_stock"
+SERVICE_CONSUME_PRODUCT_BY_BARCODE = "consume_product_from_stock_by_barcode"
 SERVICE_EXECUTE_CHORE = "execute_chore"
 SERVICE_COMPLETE_TASK = "complete_task"
 SERVICE_ADD_GENERIC = "add_generic"
@@ -47,6 +54,16 @@ SERVICE_ADD_PRODUCT_SCHEMA = vol.All(
     vol.Schema(
         {
             vol.Required(SERVICE_PRODUCT_ID): vol.Coerce(int),
+            vol.Required(SERVICE_AMOUNT): vol.Coerce(float),
+            vol.Optional(SERVICE_PRICE): str,
+        }
+    )
+)
+
+SERVICE_ADD_PRODUCT_BY_BARCODE_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Required(SERVICE_BARCODE): vol.Coerce(str),
             vol.Required(SERVICE_AMOUNT): vol.Coerce(float),
             vol.Optional(SERVICE_PRICE): str,
         }
@@ -71,6 +88,16 @@ SERVICE_CONSUME_PRODUCT_SCHEMA = vol.All(
             vol.Optional(SERVICE_SPOILED): bool,
             vol.Optional(SERVICE_SUBPRODUCT_SUBSTITUTION): bool,
             vol.Optional(SERVICE_TRANSACTION_TYPE): str,
+        }
+    )
+)
+
+SERVICE_CONSUME_PRODUCT_BY_BARCODE_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Required(SERVICE_BARCODE): vol.Coerce(str),
+            vol.Required(SERVICE_AMOUNT): vol.Coerce(float),
+            vol.Optional(SERVICE_SPOILED): bool,
         }
     )
 )
@@ -156,24 +183,28 @@ SERVICE_REMOVE_PRODUCT_IN_SHOPPING_LIST_SCHEMA = vol.All(
     )
 )
 
-SERVICES_WITH_ACCOMPANYING_SCHEMA: list[tuple[str, vol.Schema]] = [
-    (SERVICE_ADD_PRODUCT, SERVICE_ADD_PRODUCT_SCHEMA),
-    (SERVICE_OPEN_PRODUCT, SERVICE_OPEN_PRODUCT_SCHEMA),
-    (SERVICE_CONSUME_PRODUCT, SERVICE_CONSUME_PRODUCT_SCHEMA),
-    (SERVICE_EXECUTE_CHORE, SERVICE_EXECUTE_CHORE_SCHEMA),
-    (SERVICE_COMPLETE_TASK, SERVICE_COMPLETE_TASK_SCHEMA),
-    (SERVICE_ADD_GENERIC, SERVICE_ADD_GENERIC_SCHEMA),
-    (SERVICE_UPDATE_GENERIC, SERVICE_UPDATE_GENERIC_SCHEMA),
-    (SERVICE_DELETE_GENERIC, SERVICE_DELETE_GENERIC_SCHEMA),
-    (SERVICE_CONSUME_RECIPE, SERVICE_CONSUME_RECIPE_SCHEMA),
-    (SERVICE_TRACK_BATTERY, SERVICE_TRACK_BATTERY_SCHEMA),
+SERVICES_WITH_ACCOMPANYING_SCHEMA: list[tuple[str, vol.Schema, bool]] = [
+    (SERVICE_ADD_PRODUCT, SERVICE_ADD_PRODUCT_SCHEMA, False),
+    (SERVICE_ADD_PRODUCT_BY_BARCODE, SERVICE_ADD_PRODUCT_BY_BARCODE_SCHEMA, True),
+    (SERVICE_OPEN_PRODUCT, SERVICE_OPEN_PRODUCT_SCHEMA, False),
+    (SERVICE_CONSUME_PRODUCT, SERVICE_CONSUME_PRODUCT_SCHEMA, False),
+    (SERVICE_CONSUME_PRODUCT_BY_BARCODE, SERVICE_CONSUME_PRODUCT_BY_BARCODE_SCHEMA, True),
+    (SERVICE_EXECUTE_CHORE, SERVICE_EXECUTE_CHORE_SCHEMA, False),
+    (SERVICE_COMPLETE_TASK, SERVICE_COMPLETE_TASK_SCHEMA, False),
+    (SERVICE_ADD_GENERIC, SERVICE_ADD_GENERIC_SCHEMA, False),
+    (SERVICE_UPDATE_GENERIC, SERVICE_UPDATE_GENERIC_SCHEMA, False),
+    (SERVICE_DELETE_GENERIC, SERVICE_DELETE_GENERIC_SCHEMA, False),
+    (SERVICE_CONSUME_RECIPE, SERVICE_CONSUME_RECIPE_SCHEMA, False),
+    (SERVICE_TRACK_BATTERY, SERVICE_TRACK_BATTERY_SCHEMA, False),
     (
         SERVICE_ADD_MISSING_PRODUCTS_TO_SHOPPING_LIST,
         SERVICE_ADD_MISSING_PRODUCTS_TO_SHOPPING_LIST_SCHEMA,
+        False,
     ),
     (
         SERVICE_REMOVE_PRODUCT_IN_SHOPPING_LIST,
         SERVICE_REMOVE_PRODUCT_IN_SHOPPING_LIST_SCHEMA,
+        False,
     ),
 ]
 
@@ -187,7 +218,7 @@ async def async_setup_services(
     if hass.services.async_services().get(DOMAIN):
         return
 
-    async def async_call_grocy_service(service_call: ServiceCall) -> None:
+    async def async_call_grocy_service(service_call: ServiceCall) -> ServiceResponse | None:
         """Call correct Grocy service."""
         service = service_call.service
         service_data = service_call.data
@@ -195,11 +226,23 @@ async def async_setup_services(
         if service == SERVICE_ADD_PRODUCT:
             await async_add_product_service(hass, coordinator, service_data)
 
+        elif service == SERVICE_ADD_PRODUCT_BY_BARCODE:
+            _LOGGER.warning("Calling add_product_by_barcode")
+            myResponse = await async_add_product_by_barcode_service(hass, coordinator, service_data)
+            _LOGGER.warning("add_product_by_barcode response: %s", myResponse)
+            return myResponse
+
         elif service == SERVICE_OPEN_PRODUCT:
             await async_open_product_service(hass, coordinator, service_data)
 
         elif service == SERVICE_CONSUME_PRODUCT:
             await async_consume_product_service(hass, coordinator, service_data)
+
+        elif service == SERVICE_CONSUME_PRODUCT_BY_BARCODE:
+            _LOGGER.warning("Calling consume_product_by_barcode")
+            myResponse = await async_consume_product_by_barcode_service(hass, coordinator, service_data)
+            _LOGGER.warning("consume_product_by_barcode response: %s", myResponse)
+            return myResponse
 
         elif service == SERVICE_EXECUTE_CHORE:
             await async_execute_chore_service(hass, coordinator, service_data)
@@ -232,8 +275,15 @@ async def async_setup_services(
                 hass, coordinator, service_data
             )
 
-    for service, schema in SERVICES_WITH_ACCOMPANYING_SCHEMA:
-        hass.services.async_register(DOMAIN, service, async_call_grocy_service, schema)
+        return None
+
+    for service, schema, supports_response in SERVICES_WITH_ACCOMPANYING_SCHEMA:
+        if supports_response:
+            hass.services.async_register(
+                DOMAIN, service, async_call_grocy_service, schema, SupportsResponse.ONLY
+            )
+        else:
+            hass.services.async_register(DOMAIN, service, async_call_grocy_service, schema)
 
 
 async def async_unload_services(hass: HomeAssistant) -> None:
@@ -257,6 +307,27 @@ async def async_add_product_service(
         coordinator.grocy_api.add_product(product_id, amount, price)
 
     await hass.async_add_executor_job(wrapper)
+
+
+async def async_add_product_by_barcode_service(
+    hass: HomeAssistant, coordinator: GrocyDataUpdateCoordinator, data
+) -> ServiceResponse:
+    """Add a product by barcode in Grocy."""
+    barcode = data[SERVICE_BARCODE]
+    amount = data[SERVICE_AMOUNT]
+    price = data.get(SERVICE_PRICE, "")
+
+    def wrapper():
+        return coordinator.grocy_api.add_product_by_barcode(barcode, amount, price)
+
+    product = await hass.async_add_executor_job(wrapper)
+    # Convert Product object to a JSON-serializable dictionary
+    product_dict = {
+        "id": product.id,
+        "name": product.name,
+        "available_amount": product.available_amount,
+    }
+    return product_dict
 
 
 async def async_open_product_service(
@@ -300,6 +371,31 @@ async def async_consume_product_service(
         )
 
     await hass.async_add_executor_job(wrapper)
+
+
+async def async_consume_product_by_barcode_service(
+    hass: HomeAssistant, coordinator: GrocyDataUpdateCoordinator, data
+) -> ServiceResponse:
+    """Consume a product by barcode in Grocy."""
+    barcode = data[SERVICE_BARCODE]
+    amount = data[SERVICE_AMOUNT]
+    spoiled = data.get(SERVICE_SPOILED, False)
+
+    def wrapper():
+        return coordinator.grocy_api.consume_product_by_barcode(
+            barcode,
+            amount,
+            spoiled=spoiled
+        )
+
+    product = await hass.async_add_executor_job(wrapper)
+    # Convert Product object to a JSON-serializable dictionary
+    product_dict = {
+        "id": product.id,
+        "name": product.name,
+        "available_amount": product.available_amount,
+    }
+    return product_dict
 
 
 async def async_execute_chore_service(

@@ -27,6 +27,35 @@ add_product_to_stock:
       selector:
         text:
 
+add_product_to_stock_by_barcode:
+  name: Add Product To Stock By Barcode
+  description: Adds a given amount of a product to the stock by barcode
+  fields:
+    barcode:
+      name: Barcode
+      example: '4105250022331'
+      required: true
+      description: The barcode of the product to add to stock
+      selector:
+        text:
+    amount:
+      name: Amount
+      description: The amount to add to stock
+      required: true
+      example: 3
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 1000
+          mode: box
+    price:
+      name: Price
+      example: 1.99
+      description: The purchase price per purchase quantity unit of the added product
+      selector:
+        text:
+
 open_product:
   name: Open Product
   description: Opens a given amount of a product in stock
@@ -104,6 +133,36 @@ consume_product_from_stock:
             - "PURCHASE"
             - "INVENTORY_CORRECTION"
             - "PRODUCT_OPENED"
+
+consume_product_from_stock_by_barcode:
+  name: Consume Product From Stock By Barcode
+  description: Consumes a given amount of a product from the stock by barcode
+  fields:
+    barcode:
+      name: Barcode
+      example: '4105250022331'
+      required: true
+      description: The barcode of the product to consume
+      selector:
+        text:
+    amount:
+      name: Amount
+      example: 3
+      required: true
+      description: The amount to consume
+      selector:
+        number:
+          min: 1
+          max: 1000
+          mode: box
+    spoiled:
+      name: Spoiled
+      description: If the product was removed because of spoilage
+      example: false
+      default: false
+      selector:
+        boolean:
+
 execute_chore:
   name: Execute Chore
   description: Executes the given chore with an optional timestamp and executor
